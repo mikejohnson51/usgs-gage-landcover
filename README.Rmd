@@ -1,0 +1,80 @@
+---
+output: github_document
+---
+
+# "USGS Gage Landcover change"
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r setup, include=FALSE, message = F, warning = F}
+library(dplyr)
+library(sf)
+library(ggplot2)
+knitr::opts_chunk$set(echo = TRUE,
+                      eval = TRUE,
+                      warning = FALSE)
+```
+
+## Process
+
+For all GAGES-II basins in CONUS (n = ~9,000), identify the change in Anderson Level 1 land cover classes between 2001 and 2019 using the NLCD.
+
+## Data Directory: 
+
+  - parquet file of basins
+  
+```{r}
+basins = sfarrow::st_read_parquet('data/usgs-lc-basins.parquet') 
+ref = basins %>% 
+  sf::st_centroid() %>% 
+  select(GAGE_ID)
+```
+  
+  - Meta data about all USGS stations was aggregated and stored in CSV files.
+
+```{r, eval = FALSE}
+file = list.files("./data/", pattern = "sites_", full.names = TRUE)
+meta = bind_rows(lapply(file, read.csv)) %>% 
+   mutate(GAGE_ID = sprintf("%08s", GAGE_ID), X = NULL)
+```
+
+  - Outputs were chunked as well and saved as a series of CSV files.
+  
+```{r}
+file = list.files("./data/", pattern = "output_", full.names = TRUE)
+
+results =  bind_rows(lapply(file, read.csv)) %>% 
+     mutate(GAGE_ID = sprintf("%08s", GAGE_ID), X = NULL) %>% 
+  right_join(ref) %>% 
+  st_as_sf() %>% 
+  na.omit() %>% 
+  group_by(description) %>% 
+  mutate(scaled = scale(perD)) %>% 
+  arrange(abs(scaled)) %>% 
+  ungroup()
+
+ggplot() + 
+  geom_sf(data = results, aes(color = scaled, size = abs(scaled)), 
+          shape = 16) +
+  scale_color_gradient2(low = "red", 
+                        high = "blue", 
+                        na.value = "transparent") + 
+  facet_wrap(~description) + 
+  scale_size(range = c(0, 3), guide = 'none') +
+  theme_dark()
+```
+
+## Search Basins by Category Example
+
+```{r}
+results %>% 
+  filter(description == 'forest') %>% 
+  slice_max(perD, n = 10) %>% 
+  st_drop_geometry()
+```
+  
+# Working with this data:
+
+```{r}
+paint::paint(read.csv("output/results.csv"))
+
+```
